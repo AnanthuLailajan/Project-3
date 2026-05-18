@@ -14,7 +14,7 @@ variables:
   APP_DEV: 'mywebapp-dev'
   APP_STG: 'mywebapp-stg'
   APP_PRD: 'mywebapp-prd'
-  AZURE_SERVICE_CONNECTION: '.ananthuappconnec'
+  AZURE_SERVICE_CONNECTION: 'ananthuappconnec'
 
 stages:
 - stage: Build_Test

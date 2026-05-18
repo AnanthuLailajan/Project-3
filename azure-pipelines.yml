@@ -32,9 +32,9 @@ stages:
         version: '$(DOTNET_VERSION)'
     - script: dotnet --info
       displayName: 'Dotnet Info'
-    - script: dotnet restore DotNetWebApp.sln
+    - script: dotnet restore  $(WEB_PROJECT)
       displayName: 'Restore'
-    - script: dotnet build DotNetWebApp.sln --configuration $(BUILD_CONFIGURATION) --no-restore
+    - script: dotnet build $(WEB_PROJECT) --configuration $(BUILD_CONFIGURATION) --no-restore
       displayName: 'Build'
     - script: dotnet test tests/DotNetWebApp.Tests/DotNetWebApp.Tests.csproj --configuration $(BUILD_CONFIGURATION) --no-build --logger "trx;LogFileName=test_results.trx"
       displayName: 'Test'

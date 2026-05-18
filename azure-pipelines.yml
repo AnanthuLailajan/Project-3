@@ -2,76 +2,92 @@ trigger:
 - main
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: 'ubuntu-latest'
 
 variables:
   DOTNET_VERSION: '8.0.x'
   BUILD_CONFIGURATION: 'Release'
-  PUBLISH_DIR: '$(Build.ArtifactStagingDirectory)/publish'
-  ARTIFACT_NAME: 'drop'
 
-  # ✅ Make sure this EXACTLY matches Azure DevOps
-  AZURE_SERVICE_CONNECTION: 'ananthuappconnec'
-
+  # Adjust only if your app service names differ
   APP_DEV: 'mywebapp-dev'
   APP_STG: 'mywebapp-stg'
   APP_PRD: 'mywebapp-prd'
 
+  # Azure DevOps Service Connection Name
+  AZURE_SERVICE_CONNECTION: 'ananthuappconnec'
+
+  # Artifact settings
+  ARTIFACT_NAME: 'drop'
+  PUBLISH_DIR: '$(Build.ArtifactStagingDirectory)/publish'
+
 stages:
 
 # ==========================================
-# ✅ BUILD + TEST + PACKAGE
+# CI STAGE
 # ==========================================
 - stage: Build_Test
-  displayName: "CI — Build, Test, Publish"
+  displayName: 'CI - Restore Build Test Publish'
+
   jobs:
-  - job: BuildJob
-    displayName: Build & Test
+  - job: Build
+    displayName: 'Build Job'
+
     steps:
 
-    # Install .NET
+    - checkout: self
+
+    # Install .NET SDK
     - task: UseDotNet@2
-      displayName: "Use .NET SDK $(DOTNET_VERSION)"
+      displayName: 'Install .NET SDK'
       inputs:
         packageType: 'sdk'
         version: '$(DOTNET_VERSION)'
 
-    # ✅ IMPORTANT: shows repo structure
-    - script: ls -R
-      displayName: "List repo files"
+    # Debug (temporary - helps confirm paths)
+    - script: |
+        echo "Current directory:"
+        pwd
 
-    # ✅ Restore (auto finds projects)
+        echo "Repository files:"
+        ls -R
+
+        echo "Find csproj:"
+        find . -name "*.csproj"
+      displayName: 'Debug Repo Structure'
+
+    # Restore
     - task: DotNetCoreCLI@2
       displayName: 'Restore'
       inputs:
         command: 'restore'
-        projects: '*/.csproj'
+        projects: '**/*.csproj'
 
-    # ✅ Build
+    # Build
     - task: DotNetCoreCLI@2
       displayName: 'Build'
       inputs:
         command: 'build'
-        projects: '*/.csproj'
+        projects: '**/*.csproj'
         arguments: '--configuration $(BUILD_CONFIGURATION)'
 
-    # ✅ Test (finds test projects automatically)
+    # Test
     - task: DotNetCoreCLI@2
-      displayName: 'Test'
+      displayName: 'Run Tests'
       inputs:
         command: 'test'
-        projects: '*/*Tests/.csproj'
+        projects: '**/*Tests/*.csproj'
         arguments: '--configuration $(BUILD_CONFIGURATION)'
 
-    # ✅ Publish
+    # Publish
     - task: DotNetCoreCLI@2
-      displayName: 'Publish'
+      displayName: 'Publish Web App'
       inputs:
         command: 'publish'
-        projects: '*/.csproj'
+        publishWebProjects: true
         arguments: '--configuration $(BUILD_CONFIGURATION) --output $(PUBLISH_DIR)'
+        zipAfterPublish: false
 
-    # Zip package
+    # Create ZIP
     - task: ArchiveFiles@2
       displayName: 'Create ZIP Package'
       inputs:
@@ -81,28 +97,90 @@ stages:
         archiveFile: '$(Build.ArtifactStagingDirectory)/app.zip'
         replaceExistingArchive: true
 
-    # Publish artifact
+    # Publish Artifact
     - task: PublishPipelineArtifact@1
-      displayName: 'Publish Artifact'
+      displayName: 'Publish Pipeline Artifact'
       inputs:
         targetPath: '$(Build.ArtifactStagingDirectory)'
         artifact: '$(ARTIFACT_NAME)'
 
 # ==========================================
-# ✅ DEPLOY DEV
+# DEV DEPLOYMENT
 # ==========================================
 - stage: Deploy_Dev
-  displayName: "CD — Deploy to Dev"
+  displayName: 'Deploy to Dev'
   dependsOn: Build_Test
   condition: succeeded()
+
   jobs:
   - deployment: DeployDev
     environment: 'dev'
+
     strategy:
       runOnce:
         deploy:
           steps:
+
           - download: current
             artifact: '$(ARTIFACT_NAME)'
 
           - task: AzureWebApp@1
+            displayName: 'Deploy to Dev App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(APP_DEV)'
+              package: '$(Pipeline.Workspace)/$(ARTIFACT_NAME)/app.zip'
+
+# ==========================================
+# STAGING DEPLOYMENT
+# ==========================================
+- stage: Deploy_Staging
+  displayName: 'Deploy to Staging'
+  dependsOn: Deploy_Dev
+  condition: succeeded()
+
+  jobs:
+  - deployment: DeployStaging
+    environment: 'staging'
+
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+
+          - download: current
+            artifact: '$(ARTIFACT_NAME)'
+
+          - task: AzureWebApp@1
+            displayName: 'Deploy to Staging App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(APP_STG)'
+              package: '$(Pipeline.Workspace)/$(ARTIFACT_NAME)/app.zip'
+
+# ==========================================
+# PRODUCTION DEPLOYMENT
+# ==========================================
+- stage: Deploy_Prod
+  displayName: 'Deploy to Production'
+  dependsOn: Deploy_Staging
+  condition: succeeded()
+
+  jobs:
+  - deployment: DeployProd
+    environment: 'production'
+
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+
+          - download: current
+            artifact: '$(ARTIFACT_NAME)'
+
+          - task: AzureWebApp@1
+            displayName: 'Deploy to Production App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(APP_PRD)'
+              package: '$(Pipeline.Workspace)/$(ARTIFACT_NAME)/app.zip'

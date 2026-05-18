@@ -1,4 +1,3 @@
-
 trigger:
 - main
 
@@ -10,36 +9,45 @@ variables:
   BUILD_CONFIGURATION: 'Release'
   PUBLISH_DIR: '$(Build.ArtifactStagingDirectory)/publish'
   ARTIFACT_NAME: 'drop'
-  WEB_PROJECT: 'src/DotNetWebApp/DotNetWebApp.csproj'
+  AZURE_SERVICE_CONNECTION: 'ananthuappconnec'   # ⚠️ ensure this exists exactly
   APP_DEV: 'mywebapp-dev'
   APP_STG: 'mywebapp-stg'
   APP_PRD: 'mywebapp-prd'
-  AZURE_SERVICE_CONNECTION: 'ananthuappconnec'
 
 stages:
+
+# =========================
+# ✅ BUILD + TEST
+# =========================
 - stage: Build_Test
-  displayName: "CI — Restore, Build, Test, and Publish"
+  displayName: "CI — Build, Test, Publish"
   jobs:
   - job: BuildJob
     displayName: Build & Test
-    pool:
-      vmImage: 'ubuntu-latest'
     steps:
+
     - task: UseDotNet@2
       displayName: "Use .NET SDK $(DOTNET_VERSION)"
       inputs:
         packageType: 'sdk'
         version: '$(DOTNET_VERSION)'
-    - script: dotnet --info
-      displayName: 'Dotnet Info'
-    - script: dotnet restore  $(WEB_PROJECT)
+
+    # ✅ DEBUG (helps confirm structure)
+    - script: ls -R
+      displayName: "List repo files"
+
+    - script: dotnet restore
       displayName: 'Restore'
-    - script: dotnet build $(WEB_PROJECT) --configuration $(BUILD_CONFIGURATION) --no-restore
+
+    - script: dotnet build --configuration $(BUILD_CONFIGURATION)
       displayName: 'Build'
-    - script: dotnet test tests/DotNetWebApp.Tests/DotNetWebApp.Tests.csproj --configuration $(BUILD_CONFIGURATION) --no-build --logger "trx;LogFileName=test_results.trx"
+
+    - script: dotnet test --configuration $(BUILD_CONFIGURATION)
       displayName: 'Test'
-    - script: dotnet publish $(WEB_PROJECT) --configuration $(BUILD_CONFIGURATION) --no-build --output "$(PUBLISH_DIR)"
+
+    - script: dotnet publish --configuration $(BUILD_CONFIGURATION) --output "$(PUBLISH_DIR)"
       displayName: 'Publish'
+
     - task: ArchiveFiles@2
       displayName: 'Create ZIP Package'
       inputs:
@@ -48,19 +56,20 @@ stages:
         archiveType: 'zip'
         archiveFile: '$(Build.ArtifactStagingDirectory)/app.zip'
         replaceExistingArchive: true
+
     - task: PublishPipelineArtifact@1
-      displayName: 'Publish Pipeline Artifact'
+      displayName: 'Publish Artifact'
       inputs:
         targetPath: '$(Build.ArtifactStagingDirectory)'
         artifact: '$(ARTIFACT_NAME)'
 
+# =========================
+# ✅ DEPLOY DEV
+# =========================
 - stage: Deploy_Dev
-  displayName: "CD — Deploy to Dev"
   dependsOn: Build_Test
-  condition: succeeded()
   jobs:
   - deployment: DeployDev
-    displayName: "Deploy Dev"
     environment: 'dev'
     strategy:
       runOnce:
@@ -68,20 +77,21 @@ stages:
           steps:
           - download: current
             artifact: '$(ARTIFACT_NAME)'
+
           - task: AzureWebApp@1
-            displayName: "Deploy to App Service (Dev)"
+            displayName: "Deploy to Dev"
             inputs:
               azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
               appName: '$(APP_DEV)'
               package: '$(Pipeline.Workspace)/$(ARTIFACT_NAME)/app.zip'
 
+# =========================
+# ✅ DEPLOY STAGING
+# =========================
 - stage: Deploy_Staging
-  displayName: "CD — Deploy to Staging"
   dependsOn: Deploy_Dev
-  condition: succeeded()
   jobs:
   - deployment: DeployStaging
-    displayName: "Deploy Staging"
     environment: 'staging'
     strategy:
       runOnce:
@@ -89,20 +99,21 @@ stages:
           steps:
           - download: current
             artifact: '$(ARTIFACT_NAME)'
+
           - task: AzureWebApp@1
-            displayName: "Deploy to App Service (Staging)"
+            displayName: "Deploy to Staging"
             inputs:
               azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
               appName: '$(APP_STG)'
               package: '$(Pipeline.Workspace)/$(ARTIFACT_NAME)/app.zip'
 
+# =========================
+# ✅ DEPLOY PROD
+# =========================
 - stage: Deploy_Prod
-  displayName: "CD — Deploy to Production"
   dependsOn: Deploy_Staging
-  condition: succeeded()
   jobs:
   - deployment: DeployProd
-    displayName: "Deploy Production"
     environment: 'production'
     strategy:
       runOnce:
@@ -110,8 +121,9 @@ stages:
           steps:
           - download: current
             artifact: '$(ARTIFACT_NAME)'
+
           - task: AzureWebApp@1
-            displayName: "Deploy to App Service (Production)"
+            displayName: "Deploy to Production"
             inputs:
               azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
               appName: '$(APP_PRD)'

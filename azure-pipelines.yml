@@ -8,23 +8,23 @@ variables:
   DOTNET_VERSION: '8.0.x'
   BUILD_CONFIGURATION: 'Release'
 
-  # Adjust only if your app service names differ
-  APP_DEV: 'mywebapp-dev'
-  APP_STG: 'mywebapp-stg'
-  APP_PRD: 'mywebapp-prd'
-
-  # Azure DevOps Service Connection Name
-  AZURE_SERVICE_CONNECTION: 'ananthuappconnec'
-
   # Artifact settings
   ARTIFACT_NAME: 'drop'
   PUBLISH_DIR: '$(Build.ArtifactStagingDirectory)/publish'
 
+  # Azure App Service Names
+  APP_DEV: 'mywebapp-dev'
+  APP_STG: 'mywebapp-stg'
+  APP_PRD: 'mywebapp-prd'
+
+  # Azure DevOps Service Connection
+  AZURE_SERVICE_CONNECTION: 'ananthuappconnec'
+
 stages:
 
-# ==========================================
+# =====================================================
 # CI STAGE
-# ==========================================
+# =====================================================
 - stage: Build_Test
   displayName: 'CI - Restore Build Test Publish'
 
@@ -34,6 +34,7 @@ stages:
 
     steps:
 
+    # Checkout source code
     - checkout: self
 
     # Install .NET SDK
@@ -43,51 +44,55 @@ stages:
         packageType: 'sdk'
         version: '$(DOTNET_VERSION)'
 
-    # Debug (temporary - helps confirm paths)
+    # Debug repository structure (temporary but useful)
     - script: |
-        echo "Current directory:"
+        echo "Current Directory:"
         pwd
 
-        echo "Repository files:"
+        echo "Repository Structure:"
         ls -R
 
-        echo "Find csproj:"
+        echo "Searching for csproj files..."
         find . -name "*.csproj"
-      displayName: 'Debug Repo Structure'
 
-    # Restore
+        echo "Searching for solution files..."
+        find . -name "*.sln"
+      displayName: 'Debug Repository Structure'
+
+    # Restore NuGet packages
     - task: DotNetCoreCLI@2
       displayName: 'Restore'
       inputs:
         command: 'restore'
-        projects: '**/*.csproj'
+        projects: 'dotnetwebapp/*.csproj'
 
-    # Build
+    # Build application
     - task: DotNetCoreCLI@2
       displayName: 'Build'
       inputs:
         command: 'build'
-        projects: '**/*.csproj'
+        projects: 'dotnetwebapp/*.csproj'
         arguments: '--configuration $(BUILD_CONFIGURATION)'
 
-    # Test
+    # Run tests
     - task: DotNetCoreCLI@2
       displayName: 'Run Tests'
       inputs:
         command: 'test'
-        projects: '**/*Tests/*.csproj'
+        projects: 'dotnetwebapp/*.csproj'
         arguments: '--configuration $(BUILD_CONFIGURATION)'
 
-    # Publish
+    # Publish application
     - task: DotNetCoreCLI@2
       displayName: 'Publish Web App'
       inputs:
         command: 'publish'
-        publishWebProjects: true
+        publishWebProjects: false
+        projects: 'dotnetwebapp/*.csproj'
         arguments: '--configuration $(BUILD_CONFIGURATION) --output $(PUBLISH_DIR)'
         zipAfterPublish: false
 
-    # Create ZIP
+    # Create ZIP package
     - task: ArchiveFiles@2
       displayName: 'Create ZIP Package'
       inputs:
@@ -97,16 +102,16 @@ stages:
         archiveFile: '$(Build.ArtifactStagingDirectory)/app.zip'
         replaceExistingArchive: true
 
-    # Publish Artifact
+    # Publish pipeline artifact
     - task: PublishPipelineArtifact@1
       displayName: 'Publish Pipeline Artifact'
       inputs:
         targetPath: '$(Build.ArtifactStagingDirectory)'
         artifact: '$(ARTIFACT_NAME)'
 
-# ==========================================
-# DEV DEPLOYMENT
-# ==========================================
+# =====================================================
+# DEPLOY TO DEV
+# =====================================================
 - stage: Deploy_Dev
   displayName: 'Deploy to Dev'
   dependsOn: Build_Test
@@ -114,6 +119,7 @@ stages:
 
   jobs:
   - deployment: DeployDev
+    displayName: 'Deploy Dev'
     environment: 'dev'
 
     strategy:
@@ -121,9 +127,11 @@ stages:
         deploy:
           steps:
 
+          # Download artifact
           - download: current
             artifact: '$(ARTIFACT_NAME)'
 
+          # Deploy to Azure App Service
           - task: AzureWebApp@1
             displayName: 'Deploy to Dev App Service'
             inputs:
@@ -131,9 +139,9 @@ stages:
               appName: '$(APP_DEV)'
               package: '$(Pipeline.Workspace)/$(ARTIFACT_NAME)/app.zip'
 
-# ==========================================
-# STAGING DEPLOYMENT
-# ==========================================
+# =====================================================
+# DEPLOY TO STAGING
+# =====================================================
 - stage: Deploy_Staging
   displayName: 'Deploy to Staging'
   dependsOn: Deploy_Dev
@@ -141,6 +149,7 @@ stages:
 
   jobs:
   - deployment: DeployStaging
+    displayName: 'Deploy Staging'
     environment: 'staging'
 
     strategy:
@@ -148,9 +157,11 @@ stages:
         deploy:
           steps:
 
+          # Download artifact
           - download: current
             artifact: '$(ARTIFACT_NAME)'
 
+          # Deploy to Azure App Service
           - task: AzureWebApp@1
             displayName: 'Deploy to Staging App Service'
             inputs:
@@ -158,9 +169,9 @@ stages:
               appName: '$(APP_STG)'
               package: '$(Pipeline.Workspace)/$(ARTIFACT_NAME)/app.zip'
 
-# ==========================================
-# PRODUCTION DEPLOYMENT
-# ==========================================
+# =====================================================
+# DEPLOY TO PRODUCTION
+# =====================================================
 - stage: Deploy_Prod
   displayName: 'Deploy to Production'
   dependsOn: Deploy_Staging
@@ -168,6 +179,7 @@ stages:
 
   jobs:
   - deployment: DeployProd
+    displayName: 'Deploy Production'
     environment: 'production'
 
     strategy:
@@ -175,9 +187,11 @@ stages:
         deploy:
           steps:
 
+          # Download artifact
           - download: current
             artifact: '$(ARTIFACT_NAME)'
 
+          # Deploy to Azure App Service
           - task: AzureWebApp@1
             displayName: 'Deploy to Production App Service'
             inputs:
